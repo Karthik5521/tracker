@@ -10,19 +10,20 @@ const pixel = Buffer.from(
   "base64"
 );
 
+// HTML escaper
 const esc = (s) =>
   String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-// 🌍 IP → location lookup (using ipwhois.app)
+// 🌍 IP → location lookup
 async function getLocation(ip) {
   const fetch = (await import("node-fetch")).default;
   try {
     const firstIp = String(ip || "").split(",")[0].trim();
     if (!firstIp) return { status: "fail" };
-    const resp = await fetch(`https://ipwhois.app/json/${firstIp}`);
+    const resp = await fetch(`https://ipapi.co/${firstIp}/json/`);
     return await resp.json();
   } catch (err) {
     console.error("❌ Geo lookup failed:", err);
@@ -46,10 +47,25 @@ app.get("/", (req, res) => {
 
   const rows = logs
     .map((e) => {
-      const city = e.location?.city || "?";
-      const country = e.location?.country || "?";
-      const isp = e.location?.isp || e.location?.org || "?";
-      const proxy = e.proxy || "-";
+      const city =
+        e.location?.city || e.location?.timezone || e.location?.region || "?";
+      const country =
+        e.location?.country_name || e.location?.country || "?";
+      const isp = e.location?.org || e.location?.asn || "?";
+
+      // Format time nicely
+      const utc = new Date(e.time).toUTCString();
+      const local = new Date(e.time).toLocaleString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+        timeZoneName: "short"
+      });
+
       return `
         <tr>
           <td>${esc(e.id)}</td>
@@ -58,9 +74,11 @@ app.get("/", (req, res) => {
           <td class="mono">${esc(e.ip)}</td>
           <td>${esc(city)}, ${esc(country)}</td>
           <td>${esc(isp)}</td>
-          <td>${esc(proxy)}</td>
           <td class="ua">${esc(e.ua)}</td>
-          <td class="mono">${esc(e.time)}</td>
+          <td>
+            <div><b>Local:</b> ${esc(local)}</div>
+            <div><b>UTC:</b> ${esc(utc)}</div>
+          </td>
         </tr>
       `;
     })
@@ -73,27 +91,19 @@ app.get("/", (req, res) => {
   <title>Email Tracker Dashboard</title>
   <meta http-equiv="refresh" content="10" />
   <style>
-    :root { color-scheme: light dark; }
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
-    h1 { margin: 0 0 8px; font-size: 22px; }
-    .sub { color: #666; margin-bottom: 16px; }
-    table { width: 100%; border-collapse: collapse; background: rgba(0,0,0,0.02); }
+    h1 { margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; }
     th, td { padding: 10px; border-bottom: 1px solid #ddd; vertical-align: top; }
-    th { text-align: left; background: #111; color: #fff; position: sticky; top: 0; }
-    tr:nth-child(even) td { background: rgba(0,0,0,0.03); }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    th { background: #111; color: #fff; }
+    tr:nth-child(even) td { background: #f9f9f9; }
+    .mono { font-family: monospace; font-size: 12px; }
     .ua { max-width: 380px; overflow-wrap: anywhere; }
-    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef; color:#225; font-size:12px; }
-    .bar { display:flex; gap:12px; align-items:center; margin: 8px 0 18px; }
-    .note { font-size: 12px; color: #666; }
   </style>
 </head>
 <body>
   <h1>📊 Email Tracker Report</h1>
-  <div class="bar">
-    <div class="pill">Total opens: ${logs.length}</div>
-    <div class="note">Auto-refreshes every 10s • Data resets on free hosting restarts</div>
-  </div>
+  <p>Total opens: ${logs.length}</p>
   <table>
     <thead>
       <tr>
@@ -103,13 +113,12 @@ app.get("/", (req, res) => {
         <th>IP</th>
         <th>Geolocation</th>
         <th>ISP</th>
-        <th>Proxy</th>
         <th>User-Agent</th>
-        <th>Time (UTC)</th>
+        <th>Time</th>
       </tr>
     </thead>
     <tbody>
-      ${rows || `<tr><td colspan="9">No opens yet. Send an email with <code>&lt;img src=".../pixel?id=..."&gt;</code> and open it.</td></tr>`}
+      ${rows || `<tr><td colspan="8">No opens yet. Send a mail with <code>&lt;img src=".../pixel?id=..."&gt;</code> and open it.</td></tr>`}
     </tbody>
   </table>
 </body>
@@ -121,33 +130,17 @@ app.get("/pixel", async (req, res) => {
   const id = req.query.id || "unknown";
   const recipient = req.query.recipient || "unknown";
   const subject = req.query.subject || "unknown";
-
   const ip =
     req.headers["x-forwarded-for"] ||
     req.ip ||
     req.socket?.remoteAddress ||
     "unknown";
-
   const ua = req.get("user-agent") || "unknown";
-
-  // detect Gmail proxy
-  const proxy = ua.includes("GoogleImageProxy") ? "Gmail Proxy" : "Direct";
-
   const geo = await getLocation(ip);
 
-  const entry = {
-    id,
-    recipient,
-    subject,
-    ip,
-    location: geo,
-    isp: geo.isp || geo.org || "?",
-    ua,
-    proxy,
-    time: new Date().toISOString()
-  };
+  const entry = { id, recipient, subject, ip, location: geo, ua, time: new Date().toISOString() };
 
-  console.log("📩 Open logged:\n", JSON.stringify(entry, null, 2));
+  console.log("📩 Open logged:", entry);
   try {
     fs.appendFileSync("opens.log", JSON.stringify(entry) + "\n");
   } catch (err) {
@@ -162,6 +155,4 @@ app.get("/pixel", async (req, res) => {
 app.get("/test", (_req, res) => res.send("Hello from /test"));
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`✅ Tracker running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`✅ Tracker running on port ${PORT}`));
