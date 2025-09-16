@@ -2,21 +2,18 @@ const express = require("express");
 const fs = require("fs");
 const app = express();
 
-// Let Express trust Render's proxy for real IPs
-app.set("trust proxy", true);
-
 // 1x1 transparent GIF (tracking pixel)
 const pixel = Buffer.from(
   "R0lGODlhAQABAPAAAP///wAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==",
   "base64"
 );
 
-// 🌍 Free IP → location lookup
+// 🌍 IP → location lookup using HTTPS
 async function getLocation(ip) {
   const fetch = (await import("node-fetch")).default;
   try {
     const firstIp = ip.split(",")[0].trim(); // handle multiple IPs
-    const resp = await fetch(`https://ipwhois.app/json/${firstIp}`);
+    const resp = await fetch(`https://ipapi.co/${firstIp}/json/`);
     return await resp.json();
   } catch (err) {
     console.error("❌ Geo lookup failed:", err);
@@ -47,14 +44,17 @@ app.get("/pixel", async (req, res) => {
     time: new Date().toISOString()
   };
 
-  // Log
-  console.log("📩 Open logged:", entry);
+  // Pretty logs
+  console.log("📩 Open logged:\n", JSON.stringify(entry, null, 2));
+
+  // Save to file (optional, mainly for local dev)
   try {
     fs.appendFileSync("opens.log", JSON.stringify(entry) + "\n");
   } catch (err) {
     console.error("❌ Error writing to opens.log:", err);
   }
 
+  // Respond with tracking pixel
   res.set("Content-Type", "image/gif");
   res.set("Cache-Control", "no-store");
   res.end(pixel);
