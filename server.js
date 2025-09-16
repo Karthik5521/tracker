@@ -2,35 +2,33 @@ const express = require("express");
 const fs = require("fs");
 const app = express();
 
-// 1x1 transparent GIF
+// 1x1 transparent GIF (tracking pixel)
 const pixel = Buffer.from(
   "R0lGODlhAQABAPAAAP///wAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==",
   "base64"
 );
 
-// free IP→location lookup
+// 🌍 Free IP → location lookup
 async function getLocation(ip) {
   const fetch = (await import("node-fetch")).default;
   try {
-    const resp = await fetch(`http://ip-api.com/json/${ip}`);
+    // Take the first IP if multiple exist
+    const firstIp = ip.split(",")[0].trim();
+    const resp = await fetch(`http://ip-api.com/json/${firstIp}`);
     return await resp.json();
-  } catch {
+  } catch (err) {
+    console.error("❌ Geo lookup failed:", err);
     return { status: "fail" };
   }
 }
 
-// ✅ Root route
-app.get("/", (req, res) => {
-  res.send("📡 Mail Tracker server is running!");
-});
-
-// ✅ Test route
+// ✅ Test route to confirm server works
 app.get("/test", (req, res) => {
   console.log("✅ /test endpoint hit");
   res.send("Hello from /test");
 });
 
-// 📩 Pixel route
+// 📩 Tracking pixel route
 app.get("/pixel", async (req, res) => {
   console.log("🚀 /pixel endpoint was called");
 
@@ -47,19 +45,22 @@ app.get("/pixel", async (req, res) => {
     time: new Date().toISOString()
   };
 
+  // Log in console & file
   console.log("📩 Open logged:", entry);
-
   try {
     fs.appendFileSync("opens.log", JSON.stringify(entry) + "\n");
   } catch (err) {
     console.error("❌ Error writing to opens.log:", err);
   }
 
+  // Respond with tracking pixel
   res.set("Content-Type", "image/gif");
   res.set("Cache-Control", "no-store");
   res.end(pixel);
 });
 
-// ✅ Use Render’s PORT (or 8080 locally)
+// 🚀 Start server
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`✅ Tracker running on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`✅ Tracker running at http://localhost:${PORT}`)
+);
