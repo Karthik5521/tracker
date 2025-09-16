@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Mail Tracker",
+  "version": "1.0",
+  "description": "Injects tracking pixel into Gmail messages",
+  "permissions": ["scripting", "activeTab"],
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
